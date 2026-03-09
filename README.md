@@ -52,11 +52,7 @@ Neon Serverless PostgreSQL (or local Postgres)
 
 This service handles the heavy mathematical lifting, signal filtering, and AI processing.
 
-code
-Bash
-download
-content_copy
-expand_less
+
 cd rppg-ml-service
 python -m venv venv
 
@@ -80,11 +76,6 @@ Update the spring.datasource.url, username, and password with your Neon PostgreS
 
 Run the application:
 
-code
-Bash
-download
-content_copy
-expand_less
 cd biometric
 mvn spring-boot:run
 
@@ -94,11 +85,6 @@ Runs on http://localhost:8080
 
 The UI built with Tailwind CSS and Shadcn UI.
 
-code
-Bash
-download
-content_copy
-expand_less
 cd frontend
 npm install
 npm run dev
