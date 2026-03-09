@@ -79,8 +79,8 @@ export function BiometricAuth() {
 
     try {
       const endpoint = action === "enroll" 
-        ? "http://localhost:8000/api/auth/enroll-video" 
-        : "http://localhost:8000/api/auth/login-video";
+        ? "http://localhost:8080/api/auth/enroll" 
+        : "http://localhost:8080/api/auth/login-video";
 
       console.log(`Sending to ${endpoint} for user: ${username}`);
 
