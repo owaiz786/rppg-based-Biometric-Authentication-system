@@ -1,0 +1,23 @@
+spring:
+  application:
+    name: biometric
+
+  datasource:
+    url: jdbc:postgresql://ep-empty-mode-adotrjzo-pooler.c-2.us-east-1.aws.neon.tech/neondb?sslmode=require
+    username: neondb_owner
+    password: npg_xWNdem79KnMo
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+
+  servlet:
+    multipart:
+      max-file-size: 15MB
+      max-request-size: 20MB
+
+server:
+  port: 8080

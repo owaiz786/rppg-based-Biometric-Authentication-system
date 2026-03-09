@@ -1,0 +1,22 @@
+# Core ML - Fixed versions that work together
+numpy==1.24.3
+protobuf==3.20.3
+tensorflow==2.13.0
+opencv-contrib-python==4.9.0.80  # Compatible with numpy 1.24.3
+mediapipe==0.10.7
+scipy==1.10.1  # Compatible with numpy 1.24.3
+
+# DeepFace with specific version
+deepface==0.0.79  # Older version that works better with TF 2.13
+
+# DeepFace dependencies (minimal)
+requests==2.31.0
+gdown==4.7.3
+tqdm==4.65.0
+pillow==10.0.0
+
+# API
+fastapi==0.95.2
+uvicorn==0.22.0
+python-multipart==0.0.6
+pydantic==1.10.26
