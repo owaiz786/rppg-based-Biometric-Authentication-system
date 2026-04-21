@@ -4,7 +4,7 @@ import logging
 import traceback
 import tempfile
 import sqlite3
-from typing import Optional, List
+from typing import Optional, List, Dict
 import cv2
 import numpy as np
 from fastapi import FastAPI, UploadFile, File, Form
@@ -206,10 +206,43 @@ async def get_challenge_token():
     The frontend should call this right before showing the recording UI,
     then display the returned challenges in order.
     """
+    # Human-readable labels and durations for each challenge ID.
+    # These are returned alongside the token so the frontend can drive the UI
+    # without hard-coding challenge names.
+    CHALLENGE_UI: Dict = {
+        "blink":         {"label": "👁  Blink TWICE",         "duration_ms": 3000},
+        "head_turn":     {"label": "↔  Turn head LEFT then RIGHT", "duration_ms": 3000},
+        "head_left":     {"label": "↩  Turn head LEFT",       "duration_ms": 2500},
+        "head_right":    {"label": "↪  Turn head RIGHT",      "duration_ms": 2500},
+        "mouth_open":    {"label": "😮  Open your MOUTH wide", "duration_ms": 2500},
+        "eyebrow_raise": {"label": "🤨  Raise your EYEBROWS", "duration_ms": 2500},
+    }
+    # Fixed steps always prepended/appended
+    FIXED_START = {"id": "hold_still",  "label": "🧍 Hold still — scanning...", "duration_ms": 2000}
+    FIXED_END   = {"id": "bcg_capture", "label": "✓  Hold still — BCG scan",    "duration_ms": 2500}
+
     try:
-        token_data = generate_challenge_token(n_challenges=2)
-        logger.info(f"Issued token {token_data['token'][:8]}… challenges={token_data['challenges']}")
-        return token_data
+        # Draw 3 random challenges (was 2) so the pool is harder to guess
+        token_data = generate_challenge_token(n_challenges=3)
+
+        # Build ordered step list for the frontend
+        steps = [FIXED_START]
+        for cid in token_data["challenges"]:
+            ui = CHALLENGE_UI.get(cid, {"label": cid, "duration_ms": 2500})
+            steps.append({"id": cid, "label": ui["label"], "duration_ms": ui["duration_ms"]})
+        steps.append(FIXED_END)
+
+        total_duration_ms = sum(s["duration_ms"] for s in steps)
+
+        logger.info(
+            f"Issued token {token_data['token'][:8]}… "
+            f"challenges={token_data['challenges']}"
+        )
+        return {
+            **token_data,           # token, challenges, expires_at
+            "steps":               steps,
+            "total_duration_ms":   total_duration_ms,
+        }
     except Exception:
         logger.error(traceback.format_exc())
         return JSONResponse(status_code=500, content={

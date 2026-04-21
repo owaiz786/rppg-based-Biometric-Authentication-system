@@ -42,11 +42,18 @@ NOSE_TIP        = 1
 LEFT_FACE_EDGE  = 234
 RIGHT_FACE_EDGE = 454
 
-# Mouth landmarks for SMILE detection
+# Mouth landmarks for SMILE / MOUTH_OPEN detection
 MOUTH_UPPER     = [13, 312]
 MOUTH_LOWER     = [14, 82]
 MOUTH_LEFT      = [61, 291]
 MOUTH_RIGHT     = [39, 269]
+
+# Eyebrow landmarks for EYEBROW_RAISE detection
+# Inner brow tops — more stable than outer brow points
+LEFT_BROW_TOP   = 223   # top of left brow arch
+LEFT_EYE_TOP    = 386   # top of left eye (same as LEFT_EYE_UPPER[0])
+RIGHT_BROW_TOP  = 443   # top of right brow arch
+RIGHT_EYE_TOP   = 159   # top of right eye (same as RIGHT_EYE_UPPER[0])
 
 # ── Thresholds — tighter than before ─────────────────────────────────────────
 EAR_BLINK_THRESHOLD       = 0.22   # was 0.28 — require more definite closure
@@ -57,13 +64,27 @@ MIN_BLINK_GAP_FRAMES      = 12     # was 10
 HEAD_TURN_THRESHOLD       = 0.35   # was 0.40 — require more pronounced turn
 MAR_SMILE_THRESHOLD       = 0.55   # mouth aspect ratio for smile
 
+# ── New challenge thresholds ───────────────────────────────────────────────────
+# head_left / head_right: separate directional turns (was combined head_turn)
+HEAD_LEFT_THRESHOLD       = 0.38   # nose ratio < this = turned left  (strict)
+HEAD_RIGHT_THRESHOLD      = 0.62   # nose ratio > this = turned right (strict)
+
+# mouth_open: wider mouth opening than smile
+MAR_OPEN_THRESHOLD        = 0.50   # MAR must exceed this for mouth-open
+MIN_MAR_OPEN_FRAMES       = 3      # must stay open for ≥3 consecutive frames
+
+# eyebrow_raise: brow-to-eye gap must increase by this fraction above baseline
+BROW_RAISE_RATIO          = 1.15   # 15% above baseline
+BROW_BASELINE_FRAMES      = 8      # frames used to compute resting baseline
+
 # Minimum video duration — still forgiving for browser recording latency
 MIN_VIDEO_DURATION = 4.0
 
 # ── Challenge pool ─────────────────────────────────────────────────────────────
-ALL_CHALLENGES = ["blink", "head_turn"]
-# Can extend to ["blink", "head_turn", "smile", "look_up"] when those
-# detectors are added.
+# Original two challenges kept for backward compatibility.
+# New challenges added: head_left, head_right, mouth_open, eyebrow_raise.
+ALL_CHALLENGES = ["blink", "head_turn", "head_left", "head_right", "mouth_open", "eyebrow_raise"]
+# generate_challenge_token() samples from this pool randomly each session.
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -203,6 +224,21 @@ def _mar(landmarks, w: int, h: int) -> float:
     return (v1 + v2) / denom
 
 
+def _brow_gap(landmarks, w: int, h: int) -> float:
+    """
+    Mean vertical distance from brow top to eye top for both sides.
+    Higher = brows raised further above the eyes.
+    Used for eyebrow_raise challenge detection.
+    """
+    def pt(idx):
+        lm = landmarks[idx]
+        return np.array([lm.x * w, lm.y * h])
+
+    left_gap  = abs(pt(LEFT_BROW_TOP)[1]  - pt(LEFT_EYE_TOP)[1])
+    right_gap = abs(pt(RIGHT_BROW_TOP)[1] - pt(RIGHT_EYE_TOP)[1])
+    return (left_gap + right_gap) / 2.0
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Main analysis function
 # ─────────────────────────────────────────────────────────────────────────────
@@ -299,6 +335,15 @@ def analyze_challenges(
 
     nose_ratios: List[float] = []
 
+    # New: mouth_open tracking
+    mar_open_streak  = 0
+    mouth_open_seen  = False
+
+    # New: eyebrow_raise tracking
+    brow_values:      List[float] = []
+    brow_baseline:    Optional[float] = None
+    brow_raised_seen  = False
+
     frame_count = 0
     face_count  = 0
 
@@ -348,6 +393,31 @@ def analyze_challenges(
         if "head_turn" in required_challenges:
             nose_ratios.append(_nose_ratio(lms, w, h))
 
+        # head_left and head_right share the same nose_ratio signal
+        if "head_left" in required_challenges or "head_right" in required_challenges:
+            nose_ratios.append(_nose_ratio(lms, w, h))
+
+        # ── Mouth-open detection ───────────────────────────────────────────────
+        if "mouth_open" in required_challenges:
+            mar = _mar(lms, w, h)
+            if mar > MAR_OPEN_THRESHOLD:
+                mar_open_streak += 1
+                if mar_open_streak >= MIN_MAR_OPEN_FRAMES:
+                    mouth_open_seen = True
+            else:
+                mar_open_streak = 0
+
+        # ── Eyebrow-raise detection ────────────────────────────────────────────
+        if "eyebrow_raise" in required_challenges:
+            bg = _brow_gap(lms, w, h)
+            brow_values.append(bg)
+            # Set baseline from the first BROW_BASELINE_FRAMES face frames
+            if brow_baseline is None and face_count == BROW_BASELINE_FRAMES:
+                brow_baseline = float(np.mean(brow_values[:BROW_BASELINE_FRAMES]))
+                logger.debug(f"Brow baseline set: {brow_baseline:.2f}px")
+            if brow_baseline is not None and bg > brow_baseline * BROW_RAISE_RATIO:
+                brow_raised_seen = True
+
     # ── Cleanup ────────────────────────────────────────────────────────────────
     cap.release()
     face_mesh.close()
@@ -378,7 +448,7 @@ def analyze_challenges(
         result["challenges"]["blink"] = passed_blink
         logger.info(f"Blink challenge: {blink_count} blinks → {'PASS' if passed_blink else 'FAIL'}")
 
-    # ── Evaluate head-turn challenge ───────────────────────────────────────────
+    # ── Evaluate head-turn challenge (combined left OR right) ──────────────────
     if "head_turn" in required_challenges and nose_ratios:
         min_ratio = float(np.min(nose_ratios))
         max_ratio = float(np.max(nose_ratios))
@@ -397,6 +467,41 @@ def analyze_challenges(
             f"Head-turn: left={turned_left}, right={turned_right} → "
             f"{'PASS' if passed_turn else 'FAIL'}"
         )
+
+    # ── Evaluate head_left challenge (must turn specifically left) ─────────────
+    if "head_left" in required_challenges and nose_ratios:
+        min_ratio = float(np.min(nose_ratios))
+        passed_left = min_ratio < HEAD_LEFT_THRESHOLD
+        result["challenges"]["head_left"] = passed_left
+        result["details"]["nose_min"] = round(min_ratio, 3)
+        logger.info(
+            f"Head-left: min_ratio={min_ratio:.3f} (need <{HEAD_LEFT_THRESHOLD}) → "
+            f"{'PASS' if passed_left else 'FAIL'}"
+        )
+
+    # ── Evaluate head_right challenge (must turn specifically right) ───────────
+    if "head_right" in required_challenges and nose_ratios:
+        max_ratio = float(np.max(nose_ratios))
+        passed_right = max_ratio > HEAD_RIGHT_THRESHOLD
+        result["challenges"]["head_right"] = passed_right
+        result["details"]["nose_max"] = round(max_ratio, 3)
+        logger.info(
+            f"Head-right: max_ratio={max_ratio:.3f} (need >{HEAD_RIGHT_THRESHOLD}) → "
+            f"{'PASS' if passed_right else 'FAIL'}"
+        )
+
+    # ── Evaluate mouth_open challenge ──────────────────────────────────────────
+    if "mouth_open" in required_challenges:
+        result["challenges"]["mouth_open"] = mouth_open_seen
+        result["details"]["mouth_open_seen"] = mouth_open_seen
+        logger.info(f"Mouth-open: {'PASS' if mouth_open_seen else 'FAIL'}")
+
+    # ── Evaluate eyebrow_raise challenge ───────────────────────────────────────
+    if "eyebrow_raise" in required_challenges:
+        result["challenges"]["eyebrow_raise"] = brow_raised_seen
+        result["details"]["brow_baseline"] = round(brow_baseline, 2) if brow_baseline else None
+        result["details"]["brow_raised_seen"] = brow_raised_seen
+        logger.info(f"Eyebrow-raise: {'PASS' if brow_raised_seen else 'FAIL'}")
 
     # ── Overall pass/fail — ALL challenges must pass ───────────────────────────
     attempted    = [c for c in required_challenges if c in result["challenges"]]
