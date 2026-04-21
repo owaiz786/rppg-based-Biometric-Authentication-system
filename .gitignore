@@ -1,0 +1,61 @@
+# v0 runtime files
+__v0_runtime_loader.js
+__v0_devtools.tsx
+__v0_jsx-dev-runtime.ts
+
+# Common ignores
+node_modules/
+.next/
+.env*.local
+.DS_Store
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+rppg_final/  # Your virtual environment
+
+# Databases
+*.db
+*.sqlite3
+
+# Media files
+*.webm
+*.mp4
+*.avi
+*.jpg
+*.jpeg
+*.png
+debug_frames/
+debug_*.jpg
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+temp/
+tmp/
+*.tmp
+
+# DeepFace models
+~/.deepface/
+weights/
+facenet_weights.h5
+
+# OS
+.DS_Store
+Thumbs.db
